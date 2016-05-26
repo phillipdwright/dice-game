@@ -157,6 +157,7 @@ def turn(player, players, lastround, usestrategy=0):
         # Do we need to refill?
         if (sum(can) + sum(rerolls) < 3):
             can = refill(can, good_dice)
+            good_dice = [0, 0, 0]
         
         # Display results of this roll and totals for this turn
         print('Results of this roll:')
