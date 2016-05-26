@@ -1,5 +1,5 @@
 import collections # used in register()
-import itertools
+import itertools # used in main()
 from random import randrange # used in pick() and roll()
 from termcolor import colored # used in print_die(); third-party package
 import sys # used in print_die(), in "if __name__=='__main__':" and in sys.path.append(BASE_DIR)
@@ -65,13 +65,13 @@ def pick(can, rerolls=[0, 0, 0]):
     dice = rerolls
     to_pick = 3 - sum(rerolls)
     
-    # If there aren't enough dice to pick, reset the can
-    # TODO: Make refill_can() ?
-    if to_pick > sum(can):
-        # Put all the dice back in the can except those being rerolled
-        # TODO: Don't put the shotguns back!
-        #can = [x - y - z for x, y, z in zip(FULL_CAN, rerolls, damage)]
-        can = [x - y for x, y in zip(FULL_CAN, rerolls)]
+    # # If there aren't enough dice to pick, reset the can
+    # # TODO: Make refill_can() ?
+    # if to_pick > sum(can):
+    #     # Put all the dice back in the can except those being rerolled
+    #     # TODO: Don't put the shotguns back!
+    #     #can = [x - y - z for x, y, z in zip(FULL_CAN, rerolls, damage)]
+    #     can = [x - y for x, y in zip(FULL_CAN, rerolls)]
     
     # Pick a set of dice
     for die in range(to_pick):
@@ -89,9 +89,9 @@ def pick(can, rerolls=[0, 0, 0]):
             dice[2] += 1
             can[2] -= 1
     
-    return dice
+    return dice, can
 
-def roll(dice, can):
+def roll(dice):
     """Rolls dice and returns results
     
     *dice* is a list whose values represent the number of dice of each color
@@ -107,8 +107,7 @@ def roll(dice, can):
         for die in range(die_qty):
             result = ODDS[color][randrange(6)]
             results.append([color, result])
-            
-    # TODO: Add can refiller here
+    
     return results
 
 def turn(player, players, lastround, usestrategy=0):
@@ -129,8 +128,9 @@ def turn(player, players, lastround, usestrategy=0):
     # Roll at least once!
     keep_rolling = True
     rolls = 0
-    # Pick all three dice from the can on the first roll
+    # Pick all three dice from the can on the first roll, set good to null
     rerolls = [0, 0, 0]
+    good_dice = [0, 0, 0]
     
     # Start playing!
     if usestrategy == 0:
@@ -140,18 +140,23 @@ def turn(player, players, lastround, usestrategy=0):
     while keep_rolling:
     
         # Make a roll
-        dice = pick(can, rerolls)
-        results = roll(dice, can)
-        
+        dice, can = pick(can, rerolls)
+        results = roll(dice)
+
         # Count the dice rolled
         rerolls = [0, 0, 0]
         for die in results:
             if die[1] == 0:
                 player[3] += 1
+                good_dice[die[0]] += 1
             elif die[1] == 1:
                 rerolls[die[0]] += 1
             else:
                 player[4] += 1
+        
+        # Do we need to refill?
+        if (sum(can) + sum(rerolls) < 3):
+            can = refill(can, good_dice)
         
         # Display results of this roll and totals for this turn
         print('Results of this roll:')
@@ -196,7 +201,7 @@ def turn(player, players, lastround, usestrategy=0):
             
                 keep_rolling = inquire('Keep rolling?')
             else:
-                keep_rolling = continue_rolling(can, rerolls, points, damage, int(usestrategy), player, players, lastround)
+                keep_rolling = continue_rolling(can, rerolls, points, damage, player[5], player, players, lastround)
             if keep_rolling:
                 print('Ok, rolling again!')
             else:
@@ -211,50 +216,72 @@ def print_die(die):
     else:
         print(colored(faces[die[1]],colors[die[0]]))
 
-def main():
+def refill(can, good_dice = [0, 0, 0]):
+    # Put all your point dice back in the can and return it
+    return [x + y for x, y in zip(can, good_dice)]
+
+def main(games = 1, strats = []):
     # Register the players
     players = register()
     
     # Add command-line arguments as strategies for the players!
     # for i in range(1,1+min(len(sys.argv)-1,len(players))):
     #    players[i-1][5] = sys.argv[i]
-    for argument, player in zip(sys.argv[1:], players):
+    for argument, player in zip(strats, players):
         player[5] = argument
     
-    # Start the game
-    end_game = False
-    for game_round in itertools.count(1):
-        
-        # Start the round
-        print('Round {}!'.format(game_round))
-        
-        #Let each player take a turn
-        for player in players:
-            turn(player, players, end_game, player[5])
+    for game in range(games):
+        # Start the game
+        end_game = False
+        for game_round in itertools.count(1):
             
-            # If a player reaches 13, set the endgame strategy into effect
-            if player[2] >= 13:
-                end_game = True  # This should go here, no?
-                msg = '{} has {} {} points! Last round!'
-                print(msg.format(player[0], player[2], faces[0]))
+            # Start the round
+            print('**** Round {}!'.format(game_round))
+            
+            #Let each player take a turn
+            for player in players:
+                turn(player, players, end_game, player[5])
+                
+                # If a player reaches 13, set the endgame strategy into effect
+                if player[2] >= 13:
+                    end_game = True
+                    msg = '{} has {} {} points! Last round!'
+                    print(msg.format(player[0], player[2], faces[0]))
+            
+            # Rank the players
+            scores = [player[2] for player in players]
+            
+            # If a player reaches the goal score and is alone at the top, he wins
+            high_score = max(scores)
+            if high_score >= 13:
+                if scores.count(high_score) == 1:
+                    break
         
-        # Rank the players
-        scores = [player[2] for player in players]
-        scores.sort(reverse=True
-        
-        # If a player reaches the goal score and is alone at the top, he wins
-        if scores[0] >= 13:
-            # end_game = True  # Moved to earlier in the code
-            if scores[1] != scores[0]:
-                break
+        # Announce the winner
+        print('********* Game {} is over!  The game finished in {} rounds.'.format(game + 1, game_round))
+        for player in players:
+            if player[2] == high_score:
+                player[1] += 1
+                winner = player[0]
+            print('{} with Strategy {}: {} points'.format(player[0], player[5], player[2]))
+            player[2] = 0
+        print(winner, 'is the winner!  Huzzah!')
     
-    print('Game over!  The game finished in {} rounds.'.format(game_round))
+    print('********* We are done playing!')
     for player in players:
-        print('{}: {} points'.format(player[0], player[2]))
+        print('{} won {} games with Strategy {}'.format(player[0], player[1], player[5]))
         
 if __name__ == '__main__':
     import sys
     if sys.version.startswith('2'):
         input = raw_input
-    main()
+    # If arguments are passed after the filename, pass the first argument as
+    #  the number of games, and pass the remaining arguments as strategies to
+    #  be used
+    if len(sys.argv) > 1:
+        main(int(sys.argv[1]), [int(arg) for arg in sys.argv[2:]])
+        
+    # Otherwise, use the default values
+    else:
+        main()
 
