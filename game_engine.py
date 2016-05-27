@@ -1,7 +1,7 @@
 import collections # used in register()
 import itertools # used in main()
 from random import randrange # used in pick() and roll()
-from termcolor import colored # used in print_die(); third-party package
+import termcolor # used in print_die(); third-party package
 import sys # used in print_die(), in "if __name__=='__main__':" and in sys.path.append(BASE_DIR)
 import os
 
@@ -60,18 +60,10 @@ def pick(can, rerolls=[0, 0, 0]):
     updated after the selection is made with the new totals of dice of each
     color. *rerolls* is a list representing the number of dice being rerolled
     in each color. The function returns a list of dice, where each entry is
-    the number of dice of a color.
+    the number of dice of a color, and the can from which the dice were picked.
     """
     dice = rerolls
     to_pick = 3 - sum(rerolls)
-    
-    # # If there aren't enough dice to pick, reset the can
-    # # TODO: Make refill_can() ?
-    # if to_pick > sum(can):
-    #     # Put all the dice back in the can except those being rerolled
-    #     # TODO: Don't put the shotguns back!
-    #     #can = [x - y - z for x, y, z in zip(FULL_CAN, rerolls, damage)]
-    #     can = [x - y for x, y in zip(FULL_CAN, rerolls)]
     
     # Pick a set of dice
     for die in range(to_pick):
@@ -103,6 +95,7 @@ def roll(dice):
     
     # Go color by color and roll the number of dice available in that color
     for color, die_qty in enumerate(dice):
+        
         # Roll each die of this color and append the roll result to *results*
         for die in range(die_qty):
             result = ODDS[color][randrange(6)]
@@ -121,6 +114,7 @@ def turn(player, players, lastround, usestrategy=0):
     If *usestrategy* is greater than zero, use the indicated strategy to make
     decisions rather than prompting.
     """
+    
     # Fill up the can
     can = list(FULL_CAN)
     # Set the player's turn scores to 0
@@ -154,30 +148,41 @@ def turn(player, players, lastround, usestrategy=0):
             else:
                 player[4] += 1
         
-        # Do we need to refill?
+        # Put the good dice back in the can if it needs to be refilled
         if (sum(can) + sum(rerolls) < 3):
             can = refill(can, good_dice)
             good_dice = [0, 0, 0]
         
         # Display results of this roll and totals for this turn
-        print('Results of this roll:')
-        for die in results:
-            print_die(die)
-        print('Total {} points this turn: {}'.format(faces[0], player[3]))
-        print('Total {} damage this turn: {}'.format(faces[2], player[4]))
+        if usestrategy == 0:
+            print('Results of this roll:')
+            for die in results:
+                print_die(die)
+            print('Total {} points this turn: {}'.format(faces[0], player[3]))
+            print('Total {} damage this turn: {}'.format(faces[2], player[4]))
         
+        # The player busts if this roll puts him at or over 3 damage
         if player[4] >= 3: # The player busts
             player[3] = 0
             keep_rolling = False
-            print('Sorry! You busted!')
-            
+            if usestrategy == 0:
+                print('Sorry! You busted!')
+        
+        # If the player has not yet reached 3 damage, he decides whether to
+        #  roll again.
         else:
             total = player[2] + player[3]
-            msg = 'If you stop now, you will have {} {} points.'
-            print(msg.format(total, faces[0]))
             points = player[3]
             damage = player[4]
+            
+            # Display the player's turn status and let him choose whether to
+            #  continue rolling.
             if usestrategy == 0:
+                
+                msg = 'If you stop now, you will have {} {} points.'
+                print(msg.format(total, faces[0]))
+                
+                # Allow the user to consult a strategy.
                 get_advice = inquire('Get advice?')
                 while get_advice:
                     msg = [
@@ -194,40 +199,56 @@ def turn(player, players, lastround, usestrategy=0):
                         print('Please enter a number from 1 to 4.')
                         strategy = input('\n'.join(msg))
                     
+                    # Display the strategy's recommendation
                     if continue_rolling(can, rerolls, points, damage, int(strategy), player, players, lastround):
                         print('Strategy {} suggests that you keep rolling!'.format(strategy))
                     else:
                         print('Strategy {} suggests that you stay!'.format(strategy))
+                    
+                    # Allow the user to consult another strategy
                     get_advice = inquire('Want to check another strategy?')
-            
+                    
+                # Prompt the user to decide whether to keep rolling
                 keep_rolling = inquire('Keep rolling?')
+                
+                if keep_rolling:
+                    print('Ok, rolling again!')
+                else:
+                    print('Ok, stopping and moving on to the next player!')
+            
             else:
+                
+                # Consult the appropriate strategy to decide whether to keep
+                #  rolling.
                 keep_rolling = continue_rolling(can, rerolls, points, damage, player[5], player, players, lastround)
-            if keep_rolling:
-                print('Ok, rolling again!')
-            else:
-                print('Ok, stopping and moving on to the next player!')
+
     
     # Tally points
     player[2] += player[3]
 
+
 def print_die(die):
+    """Print a die to the terminal or command line
+    
+    Windows does not support colored text in the command line, so this
+    function will print 
+    """
     if sys.platform.startswith('win'):
         print('{}: {}'.format(colors[die[0]], faces[die[1]]))
     else:
-        print(colored(faces[die[1]],colors[die[0]]))
+        print(termcolor.colored(faces[die[1]],colors[die[0]]))
+
 
 def refill(can, good_dice = [0, 0, 0]):
     # Put all your point dice back in the can and return it
     return [x + y for x, y in zip(can, good_dice)]
+
 
 def main(games = 1, strats = []):
     # Register the players
     players = register()
     
     # Add command-line arguments as strategies for the players!
-    # for i in range(1,1+min(len(sys.argv)-1,len(players))):
-    #    players[i-1][5] = sys.argv[i]
     for argument, player in zip(strats, players):
         player[5] = argument
     
@@ -252,10 +273,13 @@ def main(games = 1, strats = []):
             # Rank the players
             scores = [player[2] for player in players]
             
-            # If a player reaches the goal score and is alone at the top, he wins
+            # If a player has the highest score,...
             high_score = max(scores)
+            # ...and it is at least the goal score,...
             if high_score >= 13:
+                # ...and no one else has as many points as him,...
                 if scores.count(high_score) == 1:
+                    # ...he wins!  End the game.
                     break
         
         # Announce the winner
@@ -276,6 +300,7 @@ if __name__ == '__main__':
     import sys
     if sys.version.startswith('2'):
         input = raw_input
+    
     # If arguments are passed after the filename, pass the first argument as
     #  the number of games, and pass the remaining arguments as strategies to
     #  be used
